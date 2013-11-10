@@ -1,0 +1,66 @@
+[INFO    ] Enabling application logging...         
+[INFO    ] Displaying logs ... Ctrl-C to interrupt.
+[INFO    ] D joust.c:91 a:1, t:1, M:91             
+[INFO    ] D joust.c:91 a:1, t:1, M:86             
+[INFO    ] D joust.c:91 a:1, t:1, M:129            
+[INFO    ] D joust.c:91 a:1, t:1, M:376            
+[INFO    ] D joust.c:91 a:1, t:1, M:426            
+[INFO    ] D joust.c:91 a:1, t:1, M:1198           
+[INFO    ] D joust.c:91 a:1, t:1, M:1352           
+[INFO    ] D joust.c:91 a:1, t:1, M:959            
+[INFO    ] D joust.c:91 a:1, t:1, M:594            
+[INFO    ] D joust.c:91 a:1, t:1, M:685            
+[INFO    ] D joust.c:91 a:1, t:1, M:1249           
+[INFO    ] D joust.c:91 a:1, t:1, M:1002           
+[INFO    ] D joust.c:91 a:1, t:1, M:333            
+[INFO    ] D joust.c:91 a:1, t:1, M:878            
+[INFO    ] D joust.c:91 a:1, t:1, M:888            
+[INFO    ] D joust.c:91 a:1, t:1, M:367            
+end of gentle looping                              
+[INFO    ] D joust.c:91 a:1, t:2, M:105            
+[INFO    ] D joust.c:91 a:1, t:2, M:86             
+[INFO    ] D joust.c:91 a:1, t:2, M:51             
+[INFO    ] D joust.c:91 a:1, t:2, M:28             
+[INFO    ] D joust.c:91 a:1, t:2, M:613            
+[INFO    ] D joust.c:91 a:1, t:2, M:711            
+[INFO    ] D joust.c:91 a:1, t:2, M:386            
+gentle hand swat                                   
+[INFO    ] D joust.c:91 a:1, t:3, M:283            
+[INFO    ] D joust.c:91 a:1, t:3, M:146            
+[INFO    ] D joust.c:91 a:1, t:3, M:299            
+[INFO    ] D joust.c:91 a:1, t:3, M:305            
+[INFO    ] D joust.c:91 a:1, t:3, M:970            
+[INFO    ] D joust.c:91 a:1, t:3, M:1145           
+[INFO    ] D joust.c:91 a:1, t:3, M:721            
+[INFO    ] D joust.c:91 a:1, t:3, M:167            
+[INFO    ] D joust.c:91 a:1, t:3, M:141            
+[INFO    ] D joust.c:91 a:1, t:3, M:45             
+[INFO    ] D joust.c:91 a:1, t:3, M:202            
+[INFO    ] D joust.c:91 a:1, t:3, M:395            
+[INFO    ] D joust.c:91 a:1, t:3, M:46             
+[INFO    ] D joust.c:91 a:1, t:3, M:131            
+max messed up                                      
+[INFO    ] D joust.c:91 a:1, t:4, M:113            
+[INFO    ] D joust.c:91 a:1, t:4, M:86             
+[INFO    ] D joust.c:91 a:1, t:4, M:297            
+[INFO    ] D joust.c:91 a:1, t:4, M:340            
+[INFO    ] D joust.c:91 a:1, t:4, M:807            
+[INFO    ] D joust.c:91 a:1, t:4, M:265            
+[INFO    ] D joust.c:91 a:1, t:4, M:588            
+[INFO    ] D joust.c:91 a:1, t:4, M:1446           
+[INFO    ] D joust.c:91 a:1, t:4, M:1025           
+[INFO    ] D joust.c:91 a:1, t:4, M:600            
+[INFO    ] D joust.c:91 a:1, t:4, M:927            
+[INFO    ] D joust.c:91 a:1, t:4, M:857            
+basic footwork + minor lunge                       
+[INFO    ] D joust.c:91 a:1, t:5, M:1682           
+[INFO    ] D joust.c:91 a:1, t:5, M:3574           
+[INFO    ] D joust.c:91 a:1, t:5, M:2413           
+[INFO    ] D joust.c:91 a:1, t:5, M:5332           
+[INFO    ] D joust.c:91 a:1, t:5, M:5524           
+[INFO    ] D joust.c:91 a:1, t:5, M:1842           
+hand shaking                                       
+^C                                                 
+                                                   
+[INFO    ] Disabling application logging...        
+

@@ -1,0 +1,17 @@
+{
+  "uuid": "4aca53ca-10c5-48a8-94e0-39d411205fe5",
+  "shortName": "joust",
+  "longName": "joust",
+  "companyName": "MakeAwesomeHappen",
+  "versionCode": 1,
+  "versionLabel": "1.0.0",
+  "watchapp": {
+    "watchface": false
+  },
+  "appKeys": {
+    "dummy": 0
+  },
+  "resources": {
+    "media": []
+  }
+}
