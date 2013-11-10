@@ -89,6 +89,9 @@ static void timer_callback(void *context) {
 
     if (is_testing) {
         APP_LOG(APP_LOG_LEVEL_DEBUG, "%s", maccel);
+        if (magnitude > 2000) {
+            vibes_double_pulse();
+        }
     }
 
     const uint32_t timeout_ms = TIMEOUT;
