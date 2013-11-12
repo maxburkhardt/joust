@@ -2,24 +2,98 @@
 
 #define TIMEOUT 500
 #define DEBUG_LEN 31
+#define HISTORY 10
+
+/****************************************************************************
+ * TYPES
+ */
+
+// Tick
+typedef struct {
+    AccelData accel;
+} Tick;
+
+
+// GameState
+// intended to have one global of this, storing all the game state
+// the idea is that now you can autocomplete any global state
+// by typing gamestate.<words>
+typedef struct {
+    unsigned int is_testing: 1; // bool - should we be recoding data for a developer test?
+    unsigned int test_number;   // count - for test logging
+
+    unsigned int tick;          // how many game ticks have elapsed
+    Tick history[HISTORY];       // store data for the last HISTORY ticks
+
+    // strings for displaying debug infos
+    char print_accel[DEBUG_LEN];
+    char print_delta[DEBUG_LEN];
+    char print_test[DEBUG_LEN];
+} GameState;
+
+
+/*********************************************************************
+ * Global state
+ * windows, layers, and the all-important STATE
+ */
 
 static Window *window;
 static TextLayer *delta_layer;
 static TextLayer *magnitude_layer; // max needs tab completion
 static AppTimer *timer;
-static char zaccel[DEBUG_LEN];
-static char maccel[DEBUG_LEN];
+static GameState state; // makes it easy to have more states or something
+                        // if we need them, later...
 
-static int test_num = 0;
-static int is_testing = 0;
 
-static AccelData prev_frame = {0,0,0};
-static AccelData cur_frame = {0,0,0};
 
+/****************************************************************************
+ * UTILS
+ */
+
+// actually sqrt
+#define SQRT_MAGIC_F 0x5f3759df 
+float butt_rt(const float x) {
+    const float xhalf = 0.5f*x;
+
+    union { // get bits for floating value
+        float x;
+        int i;
+    } u;
+    u.x = x;
+    u.i = SQRT_MAGIC_F - (u.i >> 1);  // gives initial guess y0
+    return x*u.x*(1.5f - xhalf*u.x*u.x);// Newton step, repeating increases accuracy 
+}
+
+#define get_tick(ARRAY, CUR_TICK) \
+    (ARRAY)[(CUR_TICK) % (HISTORY)]
+
+
+// sets up the `state` global for a new game
+void initialize_game_state() {
+   state.is_testing = 0;
+   state.is_testing = 0;
+   state.tick = 0;
+
+   for (int i = 0; i < HISTORY; i++) {
+       state.history[i] = (Tick){.accel = {0,0,0}};
+   }
+   // ignore print_* because those are always written before read
+}
+
+
+
+
+
+
+
+
+/****************************************************************************
+ * EVENT HANDLERS
+ */
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
-    is_testing ^= 1;
-    if (is_testing) {
-        test_num++;
+    state.is_testing ^= 1;
+    if (state.is_testing) {
+        state.test_number++;
     }
 }
 
@@ -56,54 +130,69 @@ static void window_unload(Window *window) {
     text_layer_destroy(delta_layer);
     text_layer_destroy(magnitude_layer);
 }
+//***************************************************************************
 
-// actually sqrt
-#define SQRT_MAGIC_F 0x5f3759df 
-float butt_rt(const float x) {
-    const float xhalf = 0.5f*x;
 
-    union { // get bits for floating value
-        float x;
-        int i;
-    } u;
-    u.x = x;
-    u.i = SQRT_MAGIC_F - (u.i >> 1);  // gives initial guess y0
-    return x*u.x*(1.5f - xhalf*u.x*u.x);// Newton step, repeating increases accuracy 
-}
 
+/* game loop 
+ * - increment the tick
+ * - save acceleration data
+ * - calculate deltas
+ * - perform logging if in test mode
+ * */
 static void timer_callback(void *context) {
-    int deltax, deltay, deltaz;
-    accel_service_peek(&cur_frame);
-    deltax = cur_frame.x - prev_frame.x;
-    deltay = cur_frame.y - prev_frame.y;
-    deltaz = cur_frame.z - prev_frame.z;
+    int deltax, deltay, deltaz, magnitude;
+    Tick *prev_tick, *cur_tick;
 
-    int magnitude = butt_rt(deltax*deltax + deltay*deltay + deltaz*deltaz);
+    // advance the tick clock, which we use for most things here
+    state.tick++;
+    prev_tick = & get_tick(state.history, state.tick - 1);
+    cur_tick  = & get_tick(state.history, state.tick);
 
-    prev_frame = cur_frame;
-    snprintf(zaccel, DEBUG_LEN, "X:%d Y:%d Z:%d", deltax, deltay, deltaz);
-    snprintf(maccel, DEBUG_LEN, "a:%d, t:%d, M:%d", is_testing, test_num, magnitude);
-    text_layer_set_text(delta_layer, zaccel);
-    text_layer_set_text(magnitude_layer, maccel);
+    // get data change for current tick
+    accel_service_peek(&(cur_tick->accel));
+
+    // derived numbers
+    deltax = cur_tick->accel.x - prev_tick->accel.x;
+    deltay = cur_tick->accel.y - prev_tick->accel.y;
+    deltaz = cur_tick->accel.z - prev_tick->accel.z;
+
+    magnitude = butt_rt(deltax*deltax + deltay*deltay + deltaz*deltaz);
+
+    // output to watch
+    snprintf(state.print_delta, DEBUG_LEN, "X:%d Y:%d Z:%d", deltax, deltay, deltaz);
+    snprintf(state.print_test, DEBUG_LEN, "a:%d, t:%d, M:%d", state.is_testing, state.test_number, magnitude);
+    text_layer_set_text(delta_layer, state.print_delta);
+    text_layer_set_text(magnitude_layer, state.print_test);
     //layer_mark_dirty(window_get_root_layer(window));
 
-    if (is_testing) {
-        APP_LOG(APP_LOG_LEVEL_DEBUG, "%s", maccel);
+    // output to log
+    if (state.is_testing) {
+        APP_LOG(APP_LOG_LEVEL_DEBUG, "%s", state.print_test);
+
         if (magnitude > 2000) {
             vibes_double_pulse();
         }
     }
 
+    // schedule next tick
     const uint32_t timeout_ms = TIMEOUT;
     timer = app_timer_register(timeout_ms, timer_callback, NULL);
 }
 
+// mysteriously required by `accel_data_service_subscribe`
+// it errors on NULL, so we pass this do-nothing function instead.
 static void handle_accel(AccelData *accel_data, uint32_t num_samples) {
     // do nothing
 }
 
+
+/* app lifecycle ************************************************************
+ * pebble init and cleanup
+ */
 static void init(void) {
     accel_data_service_subscribe(0, handle_accel);
+
     window = window_create();
     window_set_click_config_provider(window, click_config_provider);
     window_set_window_handlers(window, (WindowHandlers) {
@@ -113,7 +202,9 @@ static void init(void) {
     const bool animated = true;
     window_stack_push(window, animated);
 
-    accel_service_peek(&prev_frame);
+    // initialize game state
+    initialize_game_state();
+
     const uint32_t timeout_ms = TIMEOUT;
     timer = app_timer_register(timeout_ms, timer_callback, NULL);
 }
