@@ -8,6 +8,16 @@
  * TYPES
  */
 
+// Line
+typedef struct {
+    int x;
+    int y;
+} Point;
+typedef struct {
+    int length;
+    Point points[];
+} Line;
+
 // Tick
 typedef struct {
     AccelData accel;
@@ -33,7 +43,7 @@ typedef struct {
 
 
 /*********************************************************************
- * Global state
+ * GLOBAL STATE
  * windows, layers, and the all-important STATE
  */
 
@@ -81,7 +91,55 @@ void initialize_game_state() {
 }
 
 
+// evaluate a line as a function at an X
+// x points outside the domain are transformed using modulo arithemetic so that they
+// lie within the range
+// TODO: test this
+float line_eval(Line *line, int x) {
+    Point first, last, before, after;
+    float m;
 
+    // lines must have at least 2 points
+    if (line->length < 2) return 0;
+
+    first = line->points[0];
+    last  = line->points[line->length - 1];
+
+    // domain clipping
+    if (x > last.x || x < first.x) {
+        x = (x % (last.x - first.x)) + first.x;
+    }
+
+    // find the two points around x. O(n), i don't think bsearch would
+    // be faster because stack stuff takes time
+    for (int i = 1; i < line->length; i++) {
+        if (line->points[i].x == x) return line->points[i].y;
+
+        if (line->points[i].x > x) {
+            after = line->points[i];
+            break;
+        }
+    }
+    for (int i = line->length - 2; i >= 0; i--) {
+        if (line->points[i].x == x) return line->points[i].y;
+        if (line->points[i].x < x) {
+            before = line->points[i];
+            break;
+        }
+    }
+
+    // line
+    m = (after.y - before.y)/(after.x - before.x);
+    return (m*(x - before.x)) + before.y;
+}
+
+
+// convert between seconds and ticks in a line
+// destructive, in-place edit
+void line_convert_seconds_to_ticks(Line *line) {
+    for (int i = 0; i < line->length; i++)
+        line->points[i].x /= TIMEOUT;
+}
 
 
 
@@ -130,6 +188,9 @@ static void window_unload(Window *window) {
     text_layer_destroy(delta_layer);
     text_layer_destroy(magnitude_layer);
 }
+
+
+
 //***************************************************************************
 
 
