@@ -1,8 +1,10 @@
 #include <pebble.h>
+#include <limits.h>
 
 #define TIMEOUT 500
 #define DEBUG_LEN 31
 #define HISTORY 10
+#define DEBUG_LAYERS 3
 
 /****************************************************************************
  * TYPES
@@ -48,13 +50,24 @@ typedef struct {
  */
 
 static Window *window;
-static TextLayer *delta_layer;
-static TextLayer *magnitude_layer; // max needs tab completion
+static Layer *song_layer;
+static TextLayer* debug_layers[DEBUG_LAYERS];
 static AppTimer *timer;
 static GameState state; // makes it easy to have more states or something
                         // if we need them, later...
 
+static Line song = {6, {
+    {0, 1600}, {30 * 1000, 1600}, {31 * 1000, 3000}, {60 * 1000, 3000},
+        {61 * 1000, 1300}, {120 * 1000, 1600}
+}};
 
+static const GPathInfo dummy_path_info = {
+    .num_points = 4,
+    .points = (GPoint []) {{0,0}, {30, 0}, {30,30}, {0, 30}}
+};
+
+static GPath *song_path;
+static GPathInfo *song_path_info;
 
 /****************************************************************************
  * UTILS
@@ -77,6 +90,8 @@ float butt_rt(const float x) {
 #define get_tick(ARRAY, CUR_TICK) \
     (ARRAY)[(CUR_TICK) % (HISTORY)]
 
+#define min(X, Y) (((X) < (Y)) ? (X) : (Y))
+#define max(X, Y) (((X) > (Y)) ? (X) : (Y))
 
 // sets up the `state` global for a new game
 void initialize_game_state() {
@@ -95,7 +110,7 @@ void initialize_game_state() {
 // x points outside the domain are transformed using modulo arithemetic so that they
 // lie within the range
 // TODO: test this
-float line_eval(Line *line, int x) {
+int line_eval(const Line *line, int x) {
     Point first, last, before, after;
     float m;
 
@@ -108,6 +123,7 @@ float line_eval(Line *line, int x) {
     // domain clipping
     if (x > last.x || x < first.x) {
         x = (x % (last.x - first.x)) + first.x;
+        APP_LOG(APP_LOG_LEVEL_DEBUG, "x clipped to domain, x:%d", x);
     }
 
     // find the two points around x. O(n), i don't think bsearch would
@@ -136,18 +152,85 @@ float line_eval(Line *line, int x) {
 
 // convert between seconds and ticks in a line
 // destructive, in-place edit
-void line_convert_seconds_to_ticks(Line *line) {
+void line_convert_ms_to_ticks(Line *line) {
     for (int i = 0; i < line->length; i++)
         line->points[i].x /= TIMEOUT;
 }
 
+// x is min, y is max
+Point line_minmax_x(const Line *line) {
+    return (Point) {
+        .x = line->points[0].x,
+        .y = line->points[line->length - 1].x
+    };
+}
+Point line_minmax_y(const Line *line) {
+    Point minmax = {INT_MAX, INT_MIN};
+    for (int i = 0; i < line->length; i++) {
+        minmax.x = min(minmax.x, line->points[i].x);
+        minmax.y = max(minmax.y, line->points[i].y);
+    }
+    return minmax;
+}
 
+/* fit a line into an area of width*(height-plus_y) and then fill out the box with
+ * an extra plus_y pixels at the bottom:
+ *       ____
+ *    __/    \__    
+ * __/          \__ 
+ * 
+ * to
+ *    ____
+ * __/    \__
+ * |________| (this boxy bit is the plus_y)
+ */
+GPathInfo* line_to_gpathinfo(const Line *line, int width, int height, int plus_y) {
+    GPathInfo *out = malloc(sizeof(GPathInfo));
+    GPoint *out_points = malloc(sizeof(GPoint) * line->length + 2);
+
+    out->num_points = line->length+2;
+    out->points = out_points;
+
+    Point minmax_x = line_minmax_x(line);
+    Point minmax_y = line_minmax_y(line);
+
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "xmin %d, xmax %d, ymin %d, ymax %d", minmax_x.x, minmax_x.y, 
+            minmax_y.x, minmax_y.y);
+
+    float transform_x = width / (minmax_x.y - minmax_x.x);
+    float transform_y = (height - plus_y) / (minmax_y.y - minmax_y.x);
+
+    out_points[0] = (GPoint) {0, 0};
+    // map each point to a new GPoint
+    for (int i=0; i<line->length; i++) {
+        out_points[i+1] = (GPoint) {
+            (float)line->points[i].x * transform_x,
+            ((float)line->points[i].y * transform_y) + plus_y
+        };
+    }
+    out_points[line->length] = (GPoint) {width, 0};
+
+    return out;
+}
+
+void log_gpathinfo(GPathInfo *path_info) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "GPathInfo[%d]", (int)path_info->num_points);
+    for (unsigned int i=0; i<path_info->num_points; i++)
+        APP_LOG(APP_LOG_LEVEL_DEBUG, "GPathInfo[%d] = {%d, %d}", i,
+                path_info->points[i].x, path_info->points[i].y);
+}
 
 
 
 /****************************************************************************
  * EVENT HANDLERS
  */
+
+static void song_layer_update_proc(Layer *layer, GContext *ctx) {
+    graphics_context_set_fill_color(ctx, GColorBlack);
+    gpath_draw_filled(ctx, song_path);
+}
+
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
     state.is_testing ^= 1;
     if (state.is_testing) {
@@ -172,37 +255,53 @@ static void click_config_provider(void *context) {
 static void window_load(Window *window) {
     Layer *window_layer = window_get_root_layer(window);
     GRect bounds = layer_get_bounds(window_layer);
+    TextLayer *layer;
 
-    delta_layer = text_layer_create((GRect) { .origin = { 0, 72 }, .size = { bounds.size.w, 20 } });
-    text_layer_set_text(delta_layer, "delta");
-    text_layer_set_text_alignment(delta_layer, GTextAlignmentCenter);
-    layer_add_child(window_layer, text_layer_get_layer(delta_layer));
+    // make some polygons
+    song_path_info = line_to_gpathinfo(&song, bounds.size.w, 50, 10);
+    log_gpathinfo(song_path_info);
+    //song_path = gpath_create(&herpaderp);
+    //gpath_move_to(song_path, GPoint(10, bounds.size.h - 30));
 
-    magnitude_layer = text_layer_create((GRect) { .origin = { 0, 99 }, .size = { bounds.size.w, 20 } });
-    text_layer_set_text(magnitude_layer, "magnitude");
-    text_layer_set_text_alignment(magnitude_layer, GTextAlignmentCenter);
-    layer_add_child(window_layer, text_layer_get_layer(magnitude_layer));
+    /*song_layer = layer_create(bounds);*/
+    /*layer_set_update_proc(song_layer, song_layer_update_proc);*/
+    /*layer_add_child(window_layer, song_layer);*/
+
+    const int line_height = 20;
+
+    for (int i = 0; i < DEBUG_LAYERS; i++) {
+        layer = text_layer_create((GRect) { .origin = { 0, (i+1)*line_height }, .size = { bounds.size.w, line_height } });
+        text_layer_set_text(layer, "delta");
+        text_layer_set_text_alignment(layer, GTextAlignmentCenter);
+        layer_add_child(window_layer, text_layer_get_layer(layer));
+
+        debug_layers[i] = layer;
+    }
 }
 
 static void window_unload(Window *window) {
-    text_layer_destroy(delta_layer);
-    text_layer_destroy(magnitude_layer);
+    for (int i=0; i<DEBUG_LAYERS; i++)
+        text_layer_destroy(debug_layers[i]);
+
+    // this seems to cause explosions
+    free(song_path_info->points);
+    // free(song_path_info);
+
+    gpath_destroy(song_path);
+    layer_destroy(song_layer);
 }
 
 
 
-//***************************************************************************
-
-
-
-/* game loop 
+/***************************************************************************
+ * GAME LOOP
  * - increment the tick
  * - save acceleration data
  * - calculate deltas
  * - perform logging if in test mode
- * */
+ */
 static void timer_callback(void *context) {
-    int deltax, deltay, deltaz, magnitude;
+    int deltax, deltay, deltaz, magnitude, max_mag;
     Tick *prev_tick, *cur_tick;
 
     // advance the tick clock, which we use for most things here
@@ -219,19 +318,22 @@ static void timer_callback(void *context) {
     deltaz = cur_tick->accel.z - prev_tick->accel.z;
 
     magnitude = butt_rt(deltax*deltax + deltay*deltay + deltaz*deltaz);
+    max_mag = line_eval(&song, state.tick);
 
     // output to watch
     snprintf(state.print_delta, DEBUG_LEN, "X:%d Y:%d Z:%d", deltax, deltay, deltaz);
     snprintf(state.print_test, DEBUG_LEN, "a:%d, t:%d, M:%d", state.is_testing, state.test_number, magnitude);
-    text_layer_set_text(delta_layer, state.print_delta);
-    text_layer_set_text(magnitude_layer, state.print_test);
+    snprintf(state.print_accel, DEBUG_LEN, "tick:%d, max:%d", state.tick, max_mag);
+    text_layer_set_text(debug_layers[0], state.print_delta);
+    text_layer_set_text(debug_layers[1], state.print_test);
+    text_layer_set_text(debug_layers[2], state.print_accel);
     //layer_mark_dirty(window_get_root_layer(window));
 
     // output to log
     if (state.is_testing) {
         APP_LOG(APP_LOG_LEVEL_DEBUG, "%s", state.print_test);
 
-        if (magnitude > 2000) {
+        if (magnitude > max_mag) {
             vibes_double_pulse();
         }
     }
@@ -265,6 +367,8 @@ static void init(void) {
 
     // initialize game state
     initialize_game_state();
+    line_convert_ms_to_ticks(&song);
+
 
     const uint32_t timeout_ms = TIMEOUT;
     timer = app_timer_register(timeout_ms, timer_callback, NULL);
