@@ -240,7 +240,7 @@ void log_gpathinfo(GPathInfo *path_info) {
  */
 
 static void song_layer_update_proc(Layer *layer, GContext *ctx) {
-    static const uint16_t radius = 3;
+    static const uint16_t radius = 2;
     static const uint16_t height = 10;
     // song graph
     graphics_context_set_fill_color(ctx, GColorBlack);
