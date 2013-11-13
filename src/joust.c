@@ -240,16 +240,28 @@ void log_gpathinfo(GPathInfo *path_info) {
  */
 
 static void song_layer_update_proc(Layer *layer, GContext *ctx) {
+    static const uint16_t radius = 3;
+    static const uint16_t height = 10;
     // song graph
     graphics_context_set_fill_color(ctx, GColorBlack);
     gpath_draw_filled(ctx, song_path);
 
     // current location in graph
-    /*GRect bounds = layer_get_bounds(layer);*/
-    /*int x_offset = song_path->offset.x + */
-        /*(float)(state.tick % state.song_length_ticks) / (float)bounds.size.w;*/
-    /*graphics_context_set_stroke_color(ctx, GColorWhite);*/
-    /*graphics_draw_line(ctx, (GPoint){x_offset, 0}, (GPoint){x_offset, bounds.size.h});*/
+    GRect bounds = layer_get_bounds(layer);
+    float try = (float)(state.tick % state.song_length_ticks) * 
+        ((float)bounds.size.w / (float)state.song_length_ticks);
+    int x_offset = song_path->offset.x + try;
+
+    GRect progress_bar = (GRect) {
+        .origin = { bounds.origin.x, bounds.size.h - height },
+        .size = { x_offset, height }
+    };
+
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "pixel offset for tick %d=%d (%d), max=%d, b=%d", (int)state.tick, 
+            x_offset, (int)try, state.song_length_ticks, (int)bounds.size.w);
+
+    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_fill_rect(ctx, progress_bar, radius, GCornerTopRight | GCornerBottomRight );
 }
 
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
