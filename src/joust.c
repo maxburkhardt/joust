@@ -1,11 +1,12 @@
 #include <pebble.h>
 #include <limits.h>
 
-#define TIMEOUT 500
+
+#define TICK_MS 500
 #define DEBUG_LEN 31
 #define HISTORY 10
 #define DEBUG_LAYERS 3
-
+#define SONG_GRAPH_HEIGHT 70
 /****************************************************************************
  * TYPES
  */
@@ -35,7 +36,8 @@ typedef struct {
     unsigned int test_number;   // count - for test logging
 
     unsigned int tick;          // how many game ticks have elapsed
-    Tick history[HISTORY];       // store data for the last HISTORY ticks
+    Tick history[HISTORY];      // store data for the last HISTORY ticks
+    unsigned int song_length_ticks;
 
     // strings for displaying debug infos
     char print_accel[DEBUG_LEN];
@@ -49,6 +51,7 @@ typedef struct {
  * windows, layers, and the all-important STATE
  */
 
+
 static Window *window;
 static Layer *song_layer;
 static TextLayer* debug_layers[DEBUG_LAYERS];
@@ -60,11 +63,6 @@ static Line song = {6, {
     {0, 1600}, {30 * 1000, 1600}, {31 * 1000, 3000}, {60 * 1000, 3000},
         {61 * 1000, 1300}, {120 * 1000, 1600}
 }};
-
-static const GPathInfo dummy_path_info = {
-    .num_points = 4,
-    .points = (GPoint []) {{0,0}, {30, 0}, {30,30}, {0, 30}}
-};
 
 static GPath *song_path;
 static GPathInfo *song_path_info;
@@ -98,7 +96,7 @@ void initialize_game_state() {
    state.is_testing = 0;
    state.is_testing = 0;
    state.tick = 0;
-
+   state.song_length_ticks = song.points[song.length-1].x / TICK_MS;
    for (int i = 0; i < HISTORY; i++) {
        state.history[i] = (Tick){.accel = {0,0,0}};
    }
@@ -154,7 +152,7 @@ int line_eval(const Line *line, int x) {
 // destructive, in-place edit
 void line_convert_ms_to_ticks(Line *line) {
     for (int i = 0; i < line->length; i++)
-        line->points[i].x /= TIMEOUT;
+        line->points[i].x /= TICK_MS;
 }
 
 // x is min, y is max
@@ -185,8 +183,22 @@ Point line_minmax_y(const Line *line) {
  * |________| (this boxy bit is the plus_y)
  */
 GPathInfo* line_to_gpathinfo(const Line *line, int width, int height, int plus_y) {
-    GPathInfo *out = malloc(sizeof(GPathInfo));
-    GPoint *out_points = malloc(sizeof(GPoint) * line->length + 2);
+    GPathInfo *out;
+    GPoint    *out_points;
+
+    // allocations. be vewwy vewwy quiet, I'm huwnting memowy
+    out = malloc(sizeof(GPathInfo));
+    if (out == NULL) {
+        APP_LOG(APP_LOG_LEVEL_DEBUG, "line_to_gpathinfo: Could not allocate out");
+        return NULL;
+    }
+
+    out_points = malloc(sizeof(GPoint) * (line->length+2));
+    if (out_points == NULL) {
+        APP_LOG(APP_LOG_LEVEL_DEBUG, "line_to_gpathinfo: Could not allocate out_points");
+        free(out);
+        return NULL;
+    }
 
     out->num_points = line->length+2;
     out->points = out_points;
@@ -194,21 +206,22 @@ GPathInfo* line_to_gpathinfo(const Line *line, int width, int height, int plus_y
     Point minmax_x = line_minmax_x(line);
     Point minmax_y = line_minmax_y(line);
 
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "xmin %d, xmax %d, ymin %d, ymax %d", minmax_x.x, minmax_x.y, 
-            minmax_y.x, minmax_y.y);
+    float transform_x = (float)width / (float)(minmax_x.y - minmax_x.x);
+    float transform_y = (float)(height - plus_y) / (float)(minmax_y.y - minmax_y.x);
 
-    float transform_x = width / (minmax_x.y - minmax_x.x);
-    float transform_y = (height - plus_y) / (minmax_y.y - minmax_y.x);
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "xmin %d, xmax %d, ymin %d, ymax %d, tx %f, ty %f", minmax_x.x, minmax_x.y, 
+            minmax_y.x, minmax_y.y, transform_x, transform_y);
 
-    out_points[0] = (GPoint) {0, 0};
+    out_points[0] = (GPoint) {0, height};
     // map each point to a new GPoint
-    for (int i=0; i<line->length; i++) {
+    // remember that the Pebble screen system is addressed from the top-left
+    for (int i=0; i < line->length; i++) {
         out_points[i+1] = (GPoint) {
-            (float)line->points[i].x * transform_x,
-            ((float)line->points[i].y * transform_y) + plus_y
+            ((float)line->points[i].x) * transform_x,
+            height - (((float)line->points[i].y) * transform_y)
         };
     }
-    out_points[line->length] = (GPoint) {width, 0};
+    out_points[line->length+1] = (GPoint) {width, height};
 
     return out;
 }
@@ -227,8 +240,16 @@ void log_gpathinfo(GPathInfo *path_info) {
  */
 
 static void song_layer_update_proc(Layer *layer, GContext *ctx) {
+    // song graph
     graphics_context_set_fill_color(ctx, GColorBlack);
     gpath_draw_filled(ctx, song_path);
+
+    // current location in graph
+    /*GRect bounds = layer_get_bounds(layer);*/
+    /*int x_offset = song_path->offset.x + */
+        /*(float)(state.tick % state.song_length_ticks) / (float)bounds.size.w;*/
+    /*graphics_context_set_stroke_color(ctx, GColorWhite);*/
+    /*graphics_draw_line(ctx, (GPoint){x_offset, 0}, (GPoint){x_offset, bounds.size.h});*/
 }
 
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
@@ -258,14 +279,16 @@ static void window_load(Window *window) {
     TextLayer *layer;
 
     // make some polygons
-    song_path_info = line_to_gpathinfo(&song, bounds.size.w, 50, 10);
-    log_gpathinfo(song_path_info);
-    //song_path = gpath_create(&herpaderp);
-    //gpath_move_to(song_path, GPoint(10, bounds.size.h - 30));
+    song_path_info = line_to_gpathinfo(&song, bounds.size.w, SONG_GRAPH_HEIGHT, 10);
+    if (song_path_info != NULL) {
+        log_gpathinfo(song_path_info);
+        song_path = gpath_create(song_path_info);
+        gpath_move_to(song_path, GPoint(0, bounds.size.h - SONG_GRAPH_HEIGHT));
 
-    /*song_layer = layer_create(bounds);*/
-    /*layer_set_update_proc(song_layer, song_layer_update_proc);*/
-    /*layer_add_child(window_layer, song_layer);*/
+        song_layer = layer_create(bounds);
+        layer_set_update_proc(song_layer, song_layer_update_proc);
+        layer_add_child(window_layer, song_layer);
+    }
 
     const int line_height = 20;
 
@@ -284,11 +307,13 @@ static void window_unload(Window *window) {
         text_layer_destroy(debug_layers[i]);
 
     // this seems to cause explosions
-    free(song_path_info->points);
-    // free(song_path_info);
+    if (song_path_info != NULL) {
+        free(song_path_info->points);
+        free(song_path_info);
 
-    gpath_destroy(song_path);
-    layer_destroy(song_layer);
+        gpath_destroy(song_path);
+        layer_destroy(song_layer);
+    }
 }
 
 
@@ -339,7 +364,7 @@ static void timer_callback(void *context) {
     }
 
     // schedule next tick
-    const uint32_t timeout_ms = TIMEOUT;
+    const uint32_t timeout_ms = TICK_MS;
     timer = app_timer_register(timeout_ms, timer_callback, NULL);
 }
 
@@ -370,7 +395,7 @@ static void init(void) {
     line_convert_ms_to_ticks(&song);
 
 
-    const uint32_t timeout_ms = TIMEOUT;
+    const uint32_t timeout_ms = TICK_MS;
     timer = app_timer_register(timeout_ms, timer_callback, NULL);
 }
 
